@@ -21,6 +21,8 @@ jobs:
           else
             echo "Envie o arquivo radar-android.zip para este repositório." && exit 1
           fi
+          # correções enviadas depois ficam na pasta overlay e substituem os arquivos do .zip
+          if [ -d overlay ]; then cp -r overlay/. projeto/; fi
 
       - uses: actions/setup-java@v4
         with:
