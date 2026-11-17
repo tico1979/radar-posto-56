@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.widget.FrameLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.webkit.WebResourceRequest;
@@ -53,7 +54,10 @@ public class MainActivity extends Activity {
                     + "Atualize o app \"Android System WebView\" e o Chrome na Play Store e tente de novo.\n\n" + stack(t));
             return;
         }
-        setContentView(web);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+        Bridge.host = root;
         Bridge.setup(web, this, null);
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -102,6 +106,12 @@ public class MainActivity extends Activity {
         StringWriter sw = new StringWriter();
         t.printStackTrace(new PrintWriter(sw));
         return sw.toString();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (Bridge.host != null && Bridge.host.getContext() == this) Bridge.host = null;
+        super.onDestroy();
     }
 
     @Override
