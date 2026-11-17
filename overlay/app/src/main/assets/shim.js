@@ -34,16 +34,42 @@
     notifications: { create: (id, o) => A.notify(o.title || '', o.message || '') }
   };
 
+  // Abrir o app destrava uma busca que ficou pela metade (app fechado no meio)
+  if (location.pathname.endsWith('radar.html')) {
+    try {
+      const st = parse(A.get('status'));
+      if (st && st.state === 'running') A.set('status', JSON.stringify({ state: 'ok', text: 'Busca anterior interrompida', at: Date.now() }));
+    } catch (e) {}
+  }
+
+  // Mostra na tela o andamento das páginas abertas pelo Android
+  let pending = 0;
+  setInterval(() => {
+    let el = document.getElementById('netdebug');
+    if (!el) {
+      const st = document.getElementById('status');
+      if (!st) return;
+      el = document.createElement('p');
+      el.id = 'netdebug';
+      el.style.cssText = 'font:12px ui-monospace,monospace;color:var(--muted);margin:4px 0 0';
+      st.after(el);
+    }
+    try { el.textContent = pending ? 'Páginas: ' + A.debug() : ''; } catch (e) {}
+  }, 1000);
+
   // Busca feita pelo Android (sem bloqueio de CORS)
   window.fetch = url => new Promise((resolve, reject) => {
     const id = A.fetchStart(String(url));
+    pending++;
     const t0 = Date.now();
+    const end = () => { pending--; };
     const poll = () => {
       const r = A.fetchResult(id);
       if (r == null) {
-        if (Date.now() - t0 > 240000) return reject(new Error('Tempo esgotado'));
+        if (Date.now() - t0 > 240000) { end(); return reject(new Error('Tempo esgotado')); }
         return setTimeout(poll, 80);
       }
+      end();
       const i = r.indexOf('\n');
       const code = +r.slice(0, i);
       const body = r.slice(i + 1);
