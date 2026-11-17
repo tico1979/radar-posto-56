@@ -8,6 +8,8 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
 import org.json.JSONArray;
 
@@ -23,7 +25,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class Bridge {
     private static final int MAX_LOADERS = 3;
-    private static final long PAGE_TIMEOUT = 30_000;
+    private static final long PAGE_TIMEOUT = 20_000;
+    /** Tela do app: os navegadores invisíveis ficam presos nela (1 pixel), senão o Android pode pausá-los. */
+    static ViewGroup host;
 
     private final Context ctx;
     private final Runnable onDone;
@@ -34,6 +38,8 @@ public class Bridge {
     private final ArrayDeque<Object[]> queue = new ArrayDeque<>();
     private final ArrayList<WebView> idle = new ArrayList<>();
     private int created = 0;
+    private int loading = 0, finishedCount = 0;
+    private volatile String lastInfo = "";
 
     Bridge(Context ctx, Runnable onDone) {
         this.ctx = ctx.getApplicationContext();
@@ -73,6 +79,12 @@ public class Bridge {
     @JavascriptInterface
     public String fetchResult(int id) {
         return results.remove(id);
+    }
+
+    /** Situação da busca, para mostrar na tela. */
+    @JavascriptInterface
+    public String debug() {
+        return "abrindo " + loading + " · na fila " + queue.size() + " · prontas " + finishedCount + (lastInfo.isEmpty() ? "" : " · última: " + lastInfo);
     }
 
     @JavascriptInterface
@@ -117,6 +129,13 @@ public class Bridge {
             s.setLoadsImagesAutomatically(false);
             s.setBlockNetworkImage(true);
             created++;
+            if (host != null) {
+                try {
+                    w.setAlpha(0f);
+                    host.addView(w, new FrameLayout.LayoutParams(1, 1));
+                } catch (Throwable ignored) {
+                }
+            }
             return w;
         } catch (Throwable t) {
             return null;
@@ -131,6 +150,7 @@ public class Bridge {
     }
 
     private void load(final WebView w, final int id, final String url) {
+        loading++;
         final long start = System.currentTimeMillis();
         final boolean[] finished = {false};
         final boolean[] checking = {false};
@@ -144,12 +164,16 @@ public class Bridge {
                 if (finished[0]) return;
                 String html = decode(v);
                 boolean timeUp = System.currentTimeMillis() - start > PAGE_TIMEOUT;
-                boolean ready = html.length() > 15000 && !looksBlocked(html);
+                boolean ready = html.length() > 5000 && !looksBlocked(html);
                 if (!ready && !timeUp) {
                     main.postDelayed(check[0], 1500);
                     return;
                 }
                 finished[0] = true;
+                loading--;
+                finishedCount++;
+                String site = url.contains("zapimoveis") ? "ZAP" : url.contains("olx") ? "OLX" : "site";
+                lastInfo = site + (looksBlocked(html) ? " bloqueou" : html.isEmpty() ? " não abriu" : " ok") + " (" + (html.length() / 1024) + " KB, " + ((System.currentTimeMillis() - start) / 1000) + " s)";
                 results.put(id, (html.isEmpty() ? "0\nA página não abriu" : (looksBlocked(html) ? "403\n" : "200\n") + html));
                 w.stopLoading();
                 w.loadUrl("about:blank");
@@ -166,8 +190,21 @@ public class Bridge {
             }
         });
         w.loadUrl(url);
-        main.postDelayed(check[0], 6000);
+        main.postDelayed(check[0], 4000);
         main.postDelayed(check[0], PAGE_TIMEOUT + 500);
+        // garantia: se a página nem responder, libera o navegador e segue a busca
+        main.postDelayed(() -> {
+            if (finished[0]) return;
+            finished[0] = true;
+            loading--;
+            finishedCount++;
+            lastInfo = (url.contains("zapimoveis") ? "ZAP" : "OLX") + " sem resposta";
+            results.put(id, "0\nO site não respondeu");
+            w.stopLoading();
+            w.loadUrl("about:blank");
+            idle.add(w);
+            pump();
+        }, PAGE_TIMEOUT + 6000);
     }
 
     private static String decode(String v) {
