@@ -1,0 +1,47 @@
+name: Gerar APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Abrir o projeto (se veio em .zip)
+        run: |
+          if [ -f radar-android.zip ]; then
+            mkdir -p projeto && unzip -o -q radar-android.zip -d projeto
+          else
+            echo "Envie o arquivo radar-android.zip para este repositório." && exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Montar o APK
+        working-directory: projeto
+        run: gradle assembleDebug --no-daemon
+
+      - name: Preparar arquivo
+        run: cp projeto/app/build/outputs/apk/debug/app-debug.apk RadarPosto56.apk
+
+      - name: Publicar para download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Radar Posto 5 e 6 - versão ${{ github.run_number }}
+          body: Baixe o arquivo RadarPosto56.apk no celular e instale.
+          files: RadarPosto56.apk
